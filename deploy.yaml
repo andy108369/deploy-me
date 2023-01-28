@@ -2,28 +2,24 @@
 version: "2.0"
 
 services:
-  osmosis-fe:
-    # 1. get the latest tag here https://hub.docker.com/r/osmolabs/osmosis-frontend/tags
-    image: osmolabs/osmosis-frontend:370966c
+  tetris:
+    image: bsord/tetris
     expose:
-      # HTTP
-      - port: 3000
+      - port: 80
         as: 80
-        accept:
-          - osmosis.decloud.pro
         to:
           - global: true
 
 profiles:
   compute:
-    osmosis-fe:
+    tetris:
       resources:
         cpu:
-          units: 2
+          units: 1.0
         memory:
-          size: 2Gi
+          size: 512Mi
         storage:
-          size: 1Gi
+          size: 512Mi
   placement:
     akash:
       attributes:
@@ -33,12 +29,12 @@ profiles:
           - "akash1365yvmc4s7awdyj3n2sav7xfx76adc6dnmlx63"
           - "akash18qa2a2ltfyvkyj0ggj3hkvuj6twzyumuaru9s4"
       pricing:
-        osmosis-fe:
+        tetris:
           denom: uakt
-          amount: 2000
+          amount: 10000
 
 deployment:
-  osmosis-fe:
+  tetris:
     akash:
-      profile: osmosis-fe
+      profile: tetris
       count: 1
