@@ -1,0 +1,415 @@
+name: Destroy me
+
+on:
+  workflow_dispatch:
+
+env:
+  ORG: akash-network
+  REPO: provider
+  CLIENT: provider-services
+  CLIENT_VERSION: 0.1.0
+  ARCH: amd64
+  # Akash Network
+  NET: mainnet
+  #BLOCK_TIME: 6s
+  BLOCK_TIME: 1s
+  # Quit if chain is running 30 seconds behind
+  CHAIN_LATENCY: 30
+  # Akash Client parameters
+  AKASH_KEYRING_BACKEND: file
+  AKASH_BROADCAST_MODE: block
+  #AKASH_BROADCAST_MODE: async
+  AKASH_YES: 1
+  AKASH_GAS_PRICES: 0.025uakt
+  AKASH_GAS: auto
+  AKASH_GAS_ADJUSTMENT: 1.5
+  AKASH_HOME: /home/runner/.akash
+  AKASH_FROM: default
+  AKASH_OUTPUT: json
+  # Minimum balance on the wallet in AKT
+  MIN_BALANCE: 10
+  AKASH_GSEQ: 1
+  AKASH_OSEQ: 1
+  SDL: deploy.yaml
+  #PROVIDER: akash18ga02jzaq8cw52anyhzkwta5wygufgu6zsz6xc
+
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # NOTE: the code between "Init client start" and "Init client end" is shared across the workflows.
+
+    ## Init client start #
+    #                  ###
+
+    # cache .deb files to reduce the network load and accelerate the execution time
+    - name: Restore Akash client deb from cache
+      id: cache-deb-restore
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ~/cache
+        key: ${{ runner.os }}-deb
+        restore-keys: |
+          ${{ runner.os }}-deb
+
+    - name: Install Akash client deb
+      run: |-
+        mkdir ~/cache 2>/dev/null || :
+        cd ~/cache
+        set -x
+        [[ -f ${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb ]] || wget -q https://github.com/${ORG}/${REPO}/releases/download/v${CLIENT_VERSION}/${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb
+        set +x
+        sudo dpkg -i ${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb
+        ${CLIENT} version
+
+    # for debugging
+    #- name: Setup tmate session
+    #  uses: mxschmitt/action-tmate@v3
+
+    - name: Save Akash client deb to cache
+      id: cache-deb-save
+      uses: actions/cache/save@v3
+      with:
+        path: |
+          ~/cache
+        key: ${{ steps.cache-deb-restore.outputs.cache-primary-key }}
+
+    - name: Check mnemonic seed secret is present (SEED secret)
+      id: get-seed
+      env:
+        SEED: ${{ secrets.SEED }}
+      run: |
+        if test -z "${SEED}"; then
+          echo "I could not find the mnemonic seed!"
+          echo "Please add a mnemonic seed secret named SEED to this repo (<repo>/settings/secrets/actions)"
+          echo "I will generate one for you as an example, using '${CLIENT} keys mnemonic' CLI command:"
+          echo "============ MNEMONIC SEED ============"
+          ${CLIENT} keys mnemonic
+          echo "============ MNEMONIC SEED ============"
+          exit 1
+        fi
+
+    - name: Check password secret is present (PASSWORD secret)
+      id: get-password
+      env:
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: |
+        if test -z "${PASSWORD}"; then
+          echo "I could not find the password!"
+          echo "Please add a secret named PASSWORD to this repo (<repo>/settings/secrets/actions)"
+          echo "This password will be used to encrypt the wallet."
+          exit 1
+        fi
+
+    - name: Restore encrypted wallet from cache
+      id: cache-wallet-restore
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ${{ env.AKASH_HOME }}/keyring-file
+        key: ${{ runner.os }}-wallet
+        restore-keys: |
+          ${{ runner.os }}-wallet
+
+    - name: AKASH_KEYRING_BACKEND
+      id: akash-keyring-backend
+      run: |
+        echo "is=${AKASH_KEYRING_BACKEND}" >> $GITHUB_OUTPUT
+
+    - name: Restore the wallet from mnemonic seed
+      if: steps.cache-wallet-restore.outputs.cache-hit != 'true' && steps.akash-keyring-backend.outputs.is != 'test'
+      id: restore-wallet
+      env:
+        SEED: ${{ secrets.SEED }}
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: |
+        ( echo "${SEED}"; echo "${PASSWORD}"; echo "${PASSWORD}"; ) | ${CLIENT} keys add default --recover
+        # let's only use a "file" keyring backend which is safe to use with public github repos
+        #if [[ ${AKASH_KEYRING_BACKEND} == "test" ]]; then
+        #  echo "${SEED}" | ${CLIENT} keys add default --recover
+        #fi
+
+    - name: Set AKASH_OWNER
+      id: set-akash-owner
+      env:
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: |
+        unset AKASH_OUTPUT
+        AKASH_OWNER=$(echo "${PASSWORD}" | ${CLIENT} keys show default -a)
+        echo "AKASH_OWNER=$AKASH_OWNER" >> $GITHUB_ENV
+        echo "AKASH_OWNER: $AKASH_OWNER"
+        # Abort if AKASH_OWNER is empty
+        test ! -z $AKASH_OWNER
+
+    - name: Save encrypted wallet to cache
+      if: steps.akash-keyring-backend.outputs.is != 'test'
+      id: cache-wallet-save
+      uses: actions/cache/save@v3
+      with:
+        path: |
+          ${{ env.AKASH_HOME }}/keyring-file
+        key: ${{ steps.cache-wallet-restore.outputs.cache-primary-key }}
+
+    - name: Restore client certificates from cache
+      id: cache-client-certs-restore
+      uses: actions/cache/restore@v3
+      with:
+        path: |
+          ${{ env.AKASH_HOME }}/*.pem
+        key: ${{ runner.os }}-client-certs
+        restore-keys: |
+          ${{ runner.os }}-client-certs
+
+    - name: Configure the network
+      run: |
+        CHAIN_METADATA=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/${NET}/meta.json)
+        #FAUCET=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/faucet-url.txt)
+        NET_VERSION=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/version.txt)
+        AKASH_CHAIN_ID="$(echo $CHAIN_METADATA | jq -r .chain_id)"
+        AKASH_NODE="$(echo $CHAIN_METADATA | jq -r .apis.rpc[0].address)"
+
+        echo "Checking the chain ID: RPC vs what is set in ${ORG}/${NET} repo"
+        NET_ID=$(curl -s "$AKASH_NODE/status" | jq -r '.result.node_info.network')
+        if [[ $NET_ID != $AKASH_CHAIN_ID ]]; then
+          echo "AKASH_CHAIN_ID '$AKASH_CHAIN_ID' does not match what Akash RPC $AKASH_NODE has: '$NET_ID'!";
+          exit 1
+        fi
+
+        echo "Checking the RPC is not running behind (or ahead) by $CHAIN_LATENCY seconds"
+        DATE_AKASH=$(curl -s "$AKASH_NODE/status" | jq -r '.result.sync_info.latest_block_time')
+        TS_AKASH=$(date +%s --date "$DATE_AKASH")
+        TS=$(date +%s)
+        DIFF=$(echo "$TS - $TS_AKASH" | bc)
+        if [[ $DIFF -gt ${CHAIN_LATENCY} ]]; then
+          echo "Akash RPC $AKASH_NODE is running $DIFF seconds behind!"
+          exit 1
+        elif [[ $DIFF -lt -${CHAIN_LATENCY} ]]; then
+          echo "Akash RPC $AKASH_NODE is running $DIFF seconds ahead!"
+          echo "Most likely the system clock is running behind on this worker node."
+          TZ=UTC date -R
+          exit 1
+        else
+          echo "Last block Akash RPC $AKASH_NODE seen was $DIFF seconds ago => OK"
+        fi
+
+        #echo "NET_VERSION=$NET_VERSION" >> $GITHUB_ENV
+        echo "AKASH_CHAIN_ID=$AKASH_CHAIN_ID" >> $GITHUB_ENV
+        echo "AKASH_NODE=$AKASH_NODE" >> $GITHUB_ENV
+
+        echo "Akash network and version: $NET, $NET_VERSION"
+        echo "AKASH_CHAIN_ID: $AKASH_CHAIN_ID"
+        echo "AKASH_NODE: $AKASH_NODE"
+
+    - name: Check wallet balance
+      run: |
+        balance="$(${CLIENT} query bank balances ${AKASH_OWNER} | jq -r '(.balances[0].amount // 0 | tonumber / pow(10; 6))')"
+        echo "${AKASH_OWNER} balance: ${balance} AKT"
+        if ! (( $(echo "$balance > 0" | bc -l) && $(echo "$balance >= ${MIN_BALANCE}" | bc -l) )); then
+          echo "Balance is low, make sure $AKASH_OWNER account has more than ${MIN_BALANCE} AKT"
+          exit 1
+        fi
+
+    - name: Create client certificate
+      env:
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: |
+        CLIENT_CERT_PATH="${AKASH_HOME}/${AKASH_OWNER}.pem"
+        GEN_NEW_CERT=1
+
+        # Check whether the certificate is present and valid on the blockchain
+        if [[ -f "${CLIENT_CERT_PATH}" ]]; then
+          LOCAL_CERT_SN="$(cat "${CLIENT_CERT_PATH}" | openssl x509 -serial -noout | cut -d'=' -f2)"
+          LOCAL_CERT_SN_DECIMAL=$(echo "obase=10; ibase=16; $LOCAL_CERT_SN" | bc)
+          REMOTE_CERT_STATUS="$(${CLIENT} query cert list --owner $AKASH_OWNER --state valid --serial $LOCAL_CERT_SN_DECIMAL | jq -r '.certificates[0].certificate.state')"
+          echo "Client certificate serial number: ${LOCAL_CERT_SN:-unknown}, status on chain: ${REMOTE_CERT_STATUS:-unknown}"
+        else
+          echo "Client certificate: ${CLIENT_CERT_PATH} file is missing."
+          GEN_NEW_CERT=0
+        fi
+
+        if [[ -z "$LOCAL_CERT_SN" ]]; then
+          echo "Could not determine LOCAL_CERT_SN. Ignore if the client certificate is missing."
+          GEN_NEW_CERT=0
+        fi
+
+        if [[ "valid" != "$REMOTE_CERT_STATUS" ]]; then
+          echo "No valid client certificate found on chain for: ${AKASH_OWNER}. Ignore if the client certificate is missing."
+          GEN_NEW_CERT=0
+
+          echo "It might as well be that the current certificate was expired/revoked, thus, it should be safe to delete it locally."
+          # It's also a good idea to delete it as otherwise, we'd have to add `--overwrite` to `provider-services tx cert generate client` command later.
+          if [[ -f "${CLIENT_CERT_PATH}" ]]; then
+            rm -vf "${CLIENT_CERT_PATH}"
+          fi
+        fi
+
+        # generate a new cert if the current one expires sooner than 7 days
+        set +e
+        #set -x
+        ${CLIENT} query cert list --owner $AKASH_OWNER --state valid | jq -r '.certificates[-1].certificate.cert' | openssl base64 -A -d | openssl x509 -checkend 604800 -noout 2>/dev/null 1>&2
+        rc=$?
+        if [[ $rc -ne 0 ]]; then
+          # TODO: can also fall here when there is no valid cert found on the chain, avoid printing confusing message
+          #echo "Certificate expires in less than 7 days, so going to generate a new one."
+          GEN_NEW_CERT=0
+        fi
+        #set +x
+        set -e
+
+        if [[ "$GEN_NEW_CERT" -eq "0" ]]; then
+          echo "Generating a new client certificate..."
+          echo "${PASSWORD}" | ${CLIENT} tx cert generate client
+          echo "Broadcasting the certificate to the chain..."
+          echo "${PASSWORD}" | ${CLIENT} tx cert publish client
+          sleep ${BLOCK_TIME}
+        else
+          echo "Client certificate is valid and present on the chain. No further actions required."
+        fi
+
+    - name: Save client certs to cache
+      # TODO(security): check how akash client certificates are encrypted and dangers of them being leaked
+      id: cache-client-certs-save
+      uses: actions/cache/save@v3
+      with:
+        path: |
+          ${{ env.AKASH_HOME }}/*.pem
+        key: ${{ steps.cache-client-certs-restore.outputs.cache-primary-key }}
+
+    ## Init client end #
+    #                ###
+
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Restore the state
+      id: restore-state
+      continue-on-error: true
+      run: |
+        if [[ -f .akash/DSEQ && -f .akash/PROVIDER ]]; then
+          AKASH_DSEQ=$(cat .akash/DSEQ)
+          AKASH_PROVIDER=$(cat .akash/PROVIDER)
+        fi
+        test ! -z "$AKASH_DSEQ"
+        test ! -z "$AKASH_PROVIDER"
+        echo "Expecting $AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment on $AKASH_PROVIDER provider."
+        echo "Going to verify whether it is alive."
+        echo "AKASH_DSEQ=$AKASH_DSEQ" >> $GITHUB_ENV
+        echo "AKASH_PROVIDER=$AKASH_PROVIDER" >> $GITHUB_ENV
+
+    - name: Get order state
+      # return states: "active", "closed"
+      # return "null" on error
+      id: order-state
+      if: steps.restore-state.outcome == 'success'
+      run: |
+        STATE=$(${CLIENT} query market order get | jq -r '.state')
+        echo "state=$STATE" >> $GITHUB_OUTPUT
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ order state: $STATE"
+
+    - name: Get bid state
+      # return states: "active", "closed"
+      # return "null" on error
+      id: bid-state
+      if: steps.restore-state.outcome == 'success'
+      run: |
+        STATE=$(${CLIENT} query market bid get | jq -r '.bid.state')
+        echo "state=$STATE" >> $GITHUB_OUTPUT
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ bid state: $STATE"
+
+    - name: Get lease state
+      # return states: "active", "closed"
+      # return "null" on error
+      id: lease-state
+      if: steps.restore-state.outcome == 'success'
+      run: |
+        STATE=$(${CLIENT} query market lease get | jq -r '.lease.state')
+        echo "state=$STATE" >> $GITHUB_OUTPUT
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ lease state: $STATE"
+
+    - name: Get group state
+      # return states: "open", 
+      # return "null" on error
+      id: group-state
+      if: steps.restore-state.outcome == 'success'
+      run: |
+        STATE=$(${CLIENT} query deployment group get | jq -r '.state')
+        echo "state=$STATE" >> $GITHUB_OUTPUT
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ group state: $STATE"
+
+    - name: Get deployment state
+      # return states: "active", "closed"
+      # return "null" on error
+      id: deployment-state
+      if: steps.restore-state.outcome == 'success'
+      run: |
+        STATE=$(${CLIENT} query deployment get | jq -r '.deployment.state')
+        echo "state=$STATE" >> $GITHUB_OUTPUT
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment state: $STATE"
+
+    - name: Is deployment really active?
+      id: deployment-active
+      run: |
+        set -x
+        bid=${{ steps.bid-state.outputs.state }}
+        lease=${{ steps.lease-state.outputs.state }}
+        group=${{ steps.group-state.outputs.state }}
+        deployment=${{ steps.deployment-state.outputs.state }}
+        set +x
+
+        if [[ $bid == "active" &&
+              $lease == "active" &&
+              $group == "open" &&
+              $deployment == "active" ]]; then
+          echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment is active"
+          echo "is=true" >> $GITHUB_OUTPUT
+        else
+          echo "is=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Close deployment
+      id: close-deployment
+      if: steps.deployment-state.outputs.state == 'active'
+      env:
+        PASSWORD: ${{ secrets.PASSWORD }}
+      run: |
+        echo "Closing deployment"
+
+        ## === broadcast tx === ##
+        TX=$(echo "${PASSWORD}" | ${CLIENT} tx deployment close | jq -r '.txhash')
+        if test -z $TX; then
+          echo "No TX broadcasted!"
+          exit 1
+        fi
+        echo "TX: $TX"
+        sleep ${BLOCK_TIME}
+        RC=$(${CLIENT} query tx $TX | jq -r '.code')
+        case $RC in
+          0)
+            echo "TX successful"
+            ;;
+          11)
+            echo "Out of gas! Consider raising AKASH_GAS_ADJUSTMENT and trying again."
+            exit 1
+            ;;
+          *)
+            echo "Transaction $TX failed with code: '$RC'"
+            exit 1
+            ;;
+        esac
+        ## === broadcast tx === ##
+
+    - name: Remove the state if deployment is inactive
+      id: remove-state
+      if: ( steps.close-deployment.outcome == 'success' || steps.close-deployment.outcome == 'skipped' )
+      run: |
+        echo "AKASH_DSEQ=" >> $GITHUB_ENV
+        echo "AKASH_PROVIDER=" >> $GITHUB_ENV
+        rm -vf .akash/DSEQ .akash/PROVIDER .akash/STATUS
+
+    - name: Commit & Push changes
+      uses: actions-js/push@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
