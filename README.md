@@ -11,8 +11,9 @@ This repository deploys [deploy.yaml][deploy.yaml] in [Akash Network](https://ak
 - Fork it.
 - Grant workflow write permissions to this repo `Settings` -> `Actions` -> `General` -> `Workflow permissions` -> `Read and write permissions`.
 - Get Keplr wallet https://wallet.keplr.app
-- Buy [AKT](https://www.coingecko.com/en/coins/akash-network) on https://app.osmosis.zone (buy OSMO, exchange them to AKT, Withdraw AKT to your Keplr wallet)
+- Buy some [AKT](https://www.coingecko.com/en/coins/akash-network) tokens on https://app.osmosis.zone (buy OSMO, exchange them to AKT, Withdraw AKT to your Keplr wallet)
 - Create two secrets (see below) in your Github repo, under repo `Settings` -> `Secrets and variables` -> `Actions`.
+- Top-up your wallet used in the GitHub Actions (20 AKT is enough to start);
 - Update [deploy.yaml][deploy.yaml], you can find more examples in the [awesome-akash](https://github.com/akash-network/awesome-akash) repo.
 
 The deployment workflow will run automatically as you push to this repo.
