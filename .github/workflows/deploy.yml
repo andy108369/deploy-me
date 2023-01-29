@@ -161,6 +161,15 @@ jobs:
         # add "--gseq 0 --oseq 0" -- to catch all (for future placement groups support)
         BID_LIST="$(${CLIENT} query market bid list --state open)"
         #BID_LENGTH=$(echo "$BID_LIST" | jq -r '.bids | length')
+
+        # Remove blocklisted providers from the BID_LIST
+        if [[ -f .akash/BLOCKLIST ]]; then
+          while read address; do
+            echo "Warning! Skipping provider $address based on the .akash/BLOCKLIST!"
+            TMP_BID_LIST="$(echo "$BID_LIST" | jq --arg address "$address" -c '.bids[] | del(select(.bid.bid_id.provider == $address))' | jq -s '{"bids": del(.. | nulls)}')"
+            BID_LIST="$TMP_BID_LIST"
+          done < <(cat .akash/BLOCKLIST)  # use process substitution to avoid subshell creation (cat file | while read ...) where variables are not preserved
+        fi
         echo "$BID_LIST" | jq -r '.bids[].bid | {"price":.price.amount, "provider":.bid_id.provider}'  | jq -s -r 'sort_by(.price | tonumber) | .[] | flatten | @tsv'
         if test ! -z $PROVIDER; then
           echo "PROVIDER parameter is set, locating the bid from provider: $PROVIDER ..."
