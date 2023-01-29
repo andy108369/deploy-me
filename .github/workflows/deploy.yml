@@ -59,9 +59,8 @@ jobs:
         password: ${{ secrets.PASSWORD }}
 
     - name: Call Restore state
+      id: call-restore-state
       uses: ./.github/actions/restore-state
-      with:
-        password: ${{ secrets.PASSWORD }}
 
     - name: Call Cleanup state
       uses: ./.github/actions/cleanup-state
@@ -69,9 +68,13 @@ jobs:
         password: ${{ secrets.PASSWORD }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Call Get deployment status
+      id: call-get-deployment-status
+      uses: ./.github/actions/get-deployment-status
+
     - name: Update existing deployment
       id: update-deployment
-      if: steps.deployment-active.outputs.is == 'true'
+      if: steps.call-get-deployment-status.outputs.is-deployment-active.value == 'true'
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
       run: |
