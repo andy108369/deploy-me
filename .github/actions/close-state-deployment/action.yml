@@ -17,6 +17,7 @@ runs:
     id: close-deployment
     env:
       PASSWORD: ${{ inputs.password }}
+    shell: bash
     run: |
       echo "Closing deployment"
 
