@@ -37,6 +37,8 @@ env:
 jobs:
   destroy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     # NOTE: the code between "Init client start" and "Init client end" is shared across the workflows.
