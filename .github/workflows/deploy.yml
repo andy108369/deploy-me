@@ -87,7 +87,7 @@ jobs:
       run: |
         if test -z "${SEED}"; then
           echo "I could not find the mnemonic seed!"
-          echo "Please add a mnemonic seed secret named SEED to this repo (<repo>/settings/secrets/actions)"
+          echo "Please add a mnemonic seed secret named SEED to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
           echo "I will generate one for you as an example, using '${CLIENT} keys mnemonic' CLI command:"
           echo "============ MNEMONIC SEED ============"
           ${CLIENT} keys mnemonic
@@ -102,7 +102,7 @@ jobs:
       run: |
         if test -z "${PASSWORD}"; then
           echo "I could not find the password!"
-          echo "Please add a secret named PASSWORD to this repo (<repo>/settings/secrets/actions)"
+          echo "Please add a secret named PASSWORD to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
           echo "This password will be used to encrypt the wallet."
           exit 1
         fi
