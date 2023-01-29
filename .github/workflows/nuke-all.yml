@@ -1,4 +1,4 @@
-name: Destroy all deployments (releases all deposited AKT)
+name: Nuke all deployments (releases all deposited AKT)
 #description: Close all active deployments for this account
 
 on:
@@ -36,7 +36,7 @@ env:
 
 
 jobs:
-  destroy-all:
+  nuke-all:
     runs-on: ubuntu-latest
     permissions:
       contents: write
