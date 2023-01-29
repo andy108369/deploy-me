@@ -15,7 +15,6 @@ runs:
   - name: Check required variables are set
     shell: bash
     run: |
-      echo "=== Check required variables are set ==="
       SEED="${{ inputs.seed }}"
       PASSWORD="${{ inputs.password }}"
       if test -z "${SEED}"; then
@@ -168,6 +167,7 @@ runs:
       #FAUCET=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/faucet-url.txt)
       NET_VERSION=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/version.txt)
       AKASH_CHAIN_ID="$(echo $CHAIN_METADATA | jq -r .chain_id)"
+      # TODO: pick RPC with lowest latency
       AKASH_NODE="$(echo $CHAIN_METADATA | jq -r .apis.rpc[0].address)"
 
       echo "Checking the chain ID: RPC vs what is set in ${ORG}/${NET} repo"

@@ -1,5 +1,5 @@
-name: Destroy me
-#description: Close a single deployment based on the state (.akash/{DSEQ,PROVIDER})
+name: Destroy all deployments (releases all deposited AKT)
+#description: Close all active deployments for this account
 
 on:
   workflow_dispatch:
@@ -36,7 +36,7 @@ env:
 
 
 jobs:
-  destroy:
+  destroy-all:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -51,21 +51,8 @@ jobs:
         seed: ${{ secrets.SEED }}
         password: ${{ secrets.PASSWORD }}
 
-    # Restore .akash/{DSEQ,PROVIDER} state
-    - name: Call Restore state
-      id: call-restore-state
-      uses: ./.github/actions/restore-state
-
-    - name: Call Get deployment status
-      id: call-get-deployment-status
-      if: |
-        steps.call-restore-state.outcome == 'success' &&
-        ( env.AKASH_DSEQ != '' && env.AKASH_PROVIDER != '' )
-      uses: ./.github/actions/get-deployment-status
-
-    - name: Call Close state deployment
-      uses: ./.github/actions/close-state-deployment
-      if: steps.call-get-deployment-status.outputs.is-deployment-active == 'true'
+    - name: Call Close all active
+      uses: ./.github/actions/close-all-active
       with:
         password: ${{ secrets.PASSWORD }}
         github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,9 +1,9 @@
-name: Cleanup state
-description: Cleanup state .akash/{DSEQ,PROVIDER,STATUS}
+name: Cleanup stale state
+description: Cleanup state .akash/{DSEQ,PROVIDER,STATUS} if deployment is inactive
 
 inputs:
   password:
-    description: 'Password to encrypt the wallet'
+    description: 'Password to decrypt the wallet'
     required: true
   github_token:
     description: 'GITHUB_TOKEN'
@@ -15,9 +15,6 @@ runs:
   steps:
   - name: Close stale deployment
     id: close-stale-deployment
-    if: |
-      steps.deployment-active.outputs.is == 'false' &&
-      steps.deployment-state.outputs.state == 'active'
     env:
       PASSWORD: ${{ inputs.password }}
     shell: bash
@@ -50,9 +47,6 @@ runs:
 
   - name: Remove the state if deployment is inactive
     id: remove-state
-    if: |
-      steps.deployment-active.outputs.is == 'false' &&
-      ( steps.close-stale-deployment.outcome == 'success' || steps.close-stale-deployment.outcome == 'skipped' )
     shell: bash
     run: |
       echo "AKASH_DSEQ=" >> $GITHUB_ENV

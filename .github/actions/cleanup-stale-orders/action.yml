@@ -1,9 +1,9 @@
-name: Cleanup stale orders
-description: Cleanup stale deployment requests
+name: Cleanup stale order requests
+description: Cleanup stale order (aka deployment) requests
 
 inputs:
   password:
-    description: 'Password to encrypt the wallet'
+    description: 'Password to decrypt the wallet'
     required: true
 
 runs:

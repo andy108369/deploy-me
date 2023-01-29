@@ -13,7 +13,6 @@ runs:
     # return states: "active", "closed"
     # return "null" on error
     id: order-state
-    if: steps.restore-state.outcome == 'success'
     shell: bash
     run: |
       STATE=$(${CLIENT} query market order get | jq -r '.state')
@@ -24,7 +23,6 @@ runs:
     # return states: "active", "closed"
     # return "null" on error
     id: bid-state
-    if: steps.restore-state.outcome == 'success'
     shell: bash
     run: |
       STATE=$(${CLIENT} query market bid get | jq -r '.bid.state')
@@ -35,7 +33,6 @@ runs:
     # return states: "active", "closed"
     # return "null" on error
     id: lease-state
-    if: steps.restore-state.outcome == 'success'
     shell: bash
     run: |
       STATE=$(${CLIENT} query market lease get | jq -r '.lease.state')
@@ -46,7 +43,6 @@ runs:
     # return states: "open", 
     # return "null" on error
     id: group-state
-    if: steps.restore-state.outcome == 'success'
     shell: bash
     run: |
       STATE=$(${CLIENT} query deployment group get | jq -r '.state')
@@ -57,7 +53,6 @@ runs:
     # return states: "active", "closed"
     # return "null" on error
     id: deployment-state
-    if: steps.restore-state.outcome == 'success'
     shell: bash
     run: |
       STATE=$(${CLIENT} query deployment get | jq -r '.deployment.state')
@@ -82,5 +77,6 @@ runs:
         echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment is active"
         echo "is=true" >> $GITHUB_OUTPUT
       else
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment is inactive"
         echo "is=false" >> $GITHUB_OUTPUT
       fi

@@ -1,0 +1,59 @@
+name: Close state deployment
+description: Close a single deployment based on the state (.akash/{DSEQ,PROVIDER})
+
+inputs:
+  password:
+    description: 'Password to decrypt the wallet'
+    required: true
+  github_token:
+    description: 'GITHUB_TOKEN'
+    required: true
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Close deployment
+    id: close-deployment
+    env:
+      PASSWORD: ${{ inputs.password }}
+    run: |
+      echo "Closing deployment"
+
+      ## === broadcast tx === ##
+      TX=$(echo "${PASSWORD}" | ${CLIENT} tx deployment close | jq -r '.txhash')
+      if test -z $TX; then
+        echo "No TX broadcasted!"
+        exit 1
+      fi
+      echo "TX: $TX"
+      sleep ${BLOCK_TIME}
+      RC=$(${CLIENT} query tx $TX | jq -r '.code')
+      case $RC in
+        0)
+          echo "TX successful"
+          ;;
+        11)
+          echo "Out of gas! Consider raising AKASH_GAS_ADJUSTMENT and trying again."
+          exit 1
+          ;;
+        *)
+          echo "Transaction $TX failed with code: '$RC'"
+          exit 1
+          ;;
+      esac
+      ## === broadcast tx === ##
+
+  - name: Remove the state if deployment is inactive
+    id: remove-state
+    if: steps.close-deployment.outcome == 'success'
+    shell: bash
+    run: |
+      echo "AKASH_DSEQ=" >> $GITHUB_ENV
+      echo "AKASH_PROVIDER=" >> $GITHUB_ENV
+      rm -vf .akash/DSEQ .akash/PROVIDER .akash/STATUS
+
+  - name: Commit & Push changes
+    uses: actions-js/push@master
+    with:
+      github_token: ${{ inputs.github_token }}

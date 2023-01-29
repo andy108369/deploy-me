@@ -53,28 +53,44 @@ jobs:
         seed: ${{ secrets.SEED }}
         password: ${{ secrets.PASSWORD }}
 
-    - name: Call Cleanup stale deployment requests
+    # Cleanup stale order (aka deployment) requests
+    - name: Call Cleanup stale order requests
       uses: ./.github/actions/cleanup-stale-orders
       with:
         password: ${{ secrets.PASSWORD }}
 
+    # Restore .akash/{DSEQ,PROVIDER} state
     - name: Call Restore state
       id: call-restore-state
       uses: ./.github/actions/restore-state
 
-    - name: Call Cleanup state
-      uses: ./.github/actions/cleanup-state
+    - name: Call Get deployment status
+      id: call-get-deployment-status
+      if: |
+        steps.call-restore-state.outcome == 'success' &&
+        ( env.AKASH_DSEQ != '' && env.AKASH_PROVIDER != '' )
+      uses: ./.github/actions/get-deployment-status
+
+    ## Debug contexts: https://docs.github.com/en/actions/learn-github-actions/contexts#example-printing-context-information-to-the-log
+    #- name: Dump steps context
+    #  shell: bash
+    #  run: |
+    #    echo '${{ toJSON(steps) }}'
+    #    echo '${{ steps.call-get-deployment-status.outputs.is-deployment-active }}'
+    #    exit 1
+
+    # close old deployment and remove it from .akash/{DSEQ,PROVIDER}
+    - name: Call Cleanup stale state
+      id: call-cleanup-stale-state
+      uses: ./.github/actions/cleanup-stale-state
+      if: steps.call-get-deployment-status.outputs.is-deployment-active == 'false'
       with:
         password: ${{ secrets.PASSWORD }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Call Get deployment status
-      id: call-get-deployment-status
-      uses: ./.github/actions/get-deployment-status
-
     - name: Update existing deployment
       id: update-deployment
-      if: steps.call-get-deployment-status.outputs.is-deployment-active.value == 'true'
+      if: steps.call-get-deployment-status.outputs.is-deployment-active == 'true'
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
       run: |
@@ -107,7 +123,9 @@ jobs:
 
     - name: Broadcast the deployment request
       id: create-deployment
-      if: steps.update-deployment.outcome != 'success'
+      if: |
+        ( steps.call-get-deployment-status.outputs.is-deployment-active != 'true' || steps.call-cleanup-stale-state.outcome == 'success' ) ||
+        steps.call-get-deployment-status.outcome == 'skipped'
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
       run: |
@@ -260,14 +278,17 @@ jobs:
         esac
         ## === broadcast tx === ##
 
-    - name: Deposit more AKT tokens to the deployment
+    - name: Deposit additional AKT tokens to the deployment
       id: deposit-deployment
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
+      if: steps.create-lease.outcome == 'success' || steps.update-deployment.outcome == 'success'
       run: |
         test ! -z "$AKASH_DSEQ"
         DAYS_LEFT=$(${CLIENT} query escrow blocks-remaining | jq -r '.estimated_time_remaining/pow(10;9)/60/60/24|round')
-        echo "${AKASH_DSEQ} has ${DAYS_LEFT} days left. Consider depositing more AKT for it to last longer."
+        DEPOSIT=$(${CLIENT} query deployment get | jq -r '.escrow_account.balance.amount|tonumber / pow(10;6)')
+        echo "${AKASH_DSEQ} has ${DAYS_LEFT} days left with ${DEPOSIT} AKT currently deposited."
+        echo "Consider depositing more AKT for it to last longer."
         # TODO: create a dedicated job for this task?
         # TODO: see to automate the minimum deposit (in days) / or rather add a crontab job which will take care of that.
         #echo "${PASSWORD}" | ${CLIENT} tx deployment deposit 10000000uakt
@@ -275,7 +296,7 @@ jobs:
 
     - name: Send manifest to the provider
       id: send-manifest
-      if: steps.create-deployment.outcome == 'success' || steps.update-deployment.outcome == 'success'
+      if: steps.create-lease.outcome == 'success' || steps.update-deployment.outcome == 'success'
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
       run: |
@@ -285,7 +306,7 @@ jobs:
 
     - name: Lease status
       id: lease-status
-      if: steps.create-deployment.outcome == 'success' || steps.update-deployment.outcome == 'success'
+      if: steps.create-lease.outcome == 'success' || steps.update-deployment.outcome == 'success'
       env:
         PASSWORD: ${{ secrets.PASSWORD }}
       run: |
@@ -295,6 +316,7 @@ jobs:
         cat .akash/STATUS
 
     - name: Save DSEQ and PROVIDER
+      if: steps.create-lease.outcome == 'success' || steps.update-deployment.outcome == 'success'
       run: |
         test ! -z "$AKASH_DSEQ"
         test ! -z "$AKASH_PROVIDER"
