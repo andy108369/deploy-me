@@ -1,0 +1,283 @@
+name: Initialize Akash Client
+
+inputs:
+  seed:
+    description: 'Mnemonic seed to recover the wallet'
+    required: true
+  password:
+    description: 'Password to encrypt the wallet'
+    required: true
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Check required variables are set
+    shell: bash
+    run: |
+      echo "=== Check required variables are set ==="
+      SEED="${{ inputs.seed }}"
+      PASSWORD="${{ inputs.password }}"
+      if test -z "${SEED}"; then
+        echo "SEED is empty! Please add a mnemonic seed secret named SEED to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        exit 1
+      fi
+      if test -z "${PASSWORD}"; then
+        echo "PASSWORD is empty! Please add a secret named PASSWORD to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        exit 1
+      fi
+
+      PW_LEN=$(echo -n "${PASSWORD}" | wc -c)
+      if [[ "$PW_LEN" -lt "8" ]]; then
+        echo "Password is too short! It must be at least 8 characters long!"
+        exit 1
+      fi
+
+  ## Init client start #
+  #                  ###
+
+  # cache .deb files to reduce the network load and accelerate the execution time
+  - name: Restore Akash client deb from cache
+    id: cache-deb-restore
+    uses: actions/cache/restore@v3
+    with:
+      path: |
+        ~/cache
+      key: ${{ runner.os }}-deb
+      restore-keys: |
+        ${{ runner.os }}-deb
+
+  - name: Install Akash client deb
+    shell: bash
+    run: |-
+      mkdir ~/cache 2>/dev/null || :
+      cd ~/cache
+      set -x
+      [[ -f ${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb ]] || wget -q https://github.com/${ORG}/${REPO}/releases/download/v${CLIENT_VERSION}/${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb
+      set +x
+      sudo dpkg -i ${CLIENT}_${CLIENT_VERSION}_${ARCH}.deb
+      ${CLIENT} version
+
+  # for debugging
+  #- name: Setup tmate session
+  #  uses: mxschmitt/action-tmate@v3
+
+  - name: Save Akash client deb to cache
+    id: cache-deb-save
+    uses: actions/cache/save@v3
+    with:
+      path: |
+        ~/cache
+      key: ${{ steps.cache-deb-restore.outputs.cache-primary-key }}
+
+  - name: Check mnemonic seed secret is present (SEED secret)
+    id: get-seed
+    env:
+      SEED: ${{ inputs.seed }}
+    shell: bash
+    run: |
+      if test -z "${SEED}"; then
+        echo "I could not find the mnemonic seed!"
+        echo "Please add a mnemonic seed secret named SEED to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "I will generate one for you as an example, using '${CLIENT} keys mnemonic' CLI command:"
+        echo "============ MNEMONIC SEED ============"
+        ${CLIENT} keys mnemonic
+        echo "============ MNEMONIC SEED ============"
+        exit 1
+      fi
+
+  - name: Check password secret is present (PASSWORD secret)
+    id: get-password
+    env:
+      PASSWORD: ${{ inputs.password }}
+    shell: bash
+    run: |
+      if test -z "${PASSWORD}"; then
+        echo "I could not find the password!"
+        echo "Please add a secret named PASSWORD to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "This password will be used to encrypt the wallet."
+        exit 1
+      fi
+
+  - name: Restore encrypted wallet from cache
+    id: cache-wallet-restore
+    uses: actions/cache/restore@v3
+    with:
+      path: |
+        ${{ env.AKASH_HOME }}/keyring-file
+      key: ${{ runner.os }}-wallet
+      restore-keys: |
+        ${{ runner.os }}-wallet
+
+  - name: AKASH_KEYRING_BACKEND
+    id: akash-keyring-backend
+    shell: bash
+    run: |
+      echo "is=${AKASH_KEYRING_BACKEND}" >> $GITHUB_OUTPUT
+
+  - name: Restore the wallet from mnemonic seed
+    if: steps.cache-wallet-restore.outputs.cache-hit != 'true' && steps.akash-keyring-backend.outputs.is != 'test'
+    id: restore-wallet
+    env:
+      SEED: ${{ inputs.seed }}
+      PASSWORD: ${{ inputs.password }}
+    shell: bash
+    run: |
+      ( echo "${SEED}"; echo "${PASSWORD}"; echo "${PASSWORD}"; ) | ${CLIENT} keys add default --recover
+      # let's only use a "file" keyring backend which is safe to use with public github repos
+      #if [[ ${AKASH_KEYRING_BACKEND} == "test" ]]; then
+      #  echo "${SEED}" | ${CLIENT} keys add default --recover
+      #fi
+
+  - name: Set AKASH_OWNER
+    id: set-akash-owner
+    env:
+      PASSWORD: ${{ inputs.password }}
+    shell: bash
+    run: |
+      unset AKASH_OUTPUT
+      AKASH_OWNER=$(echo "${PASSWORD}" | ${CLIENT} keys show default -a)
+      echo "AKASH_OWNER=$AKASH_OWNER" >> $GITHUB_ENV
+      echo "AKASH_OWNER: $AKASH_OWNER"
+      # Abort if AKASH_OWNER is empty
+      test ! -z $AKASH_OWNER
+
+  - name: Save encrypted wallet to cache
+    if: steps.akash-keyring-backend.outputs.is != 'test'
+    id: cache-wallet-save
+    uses: actions/cache/save@v3
+    with:
+      path: |
+        ${{ env.AKASH_HOME }}/keyring-file
+      key: ${{ steps.cache-wallet-restore.outputs.cache-primary-key }}
+
+  - name: Restore client certificates from cache
+    id: cache-client-certs-restore
+    uses: actions/cache/restore@v3
+    with:
+      path: |
+        ${{ env.AKASH_HOME }}/*.pem
+      key: ${{ runner.os }}-client-certs
+      restore-keys: |
+        ${{ runner.os }}-client-certs
+
+  - name: Configure the network
+    shell: bash
+    run: |
+      CHAIN_METADATA=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/${NET}/meta.json)
+      #FAUCET=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/faucet-url.txt)
+      NET_VERSION=$(curl -s https://raw.githubusercontent.com/${ORG}/net/master/$NET/version.txt)
+      AKASH_CHAIN_ID="$(echo $CHAIN_METADATA | jq -r .chain_id)"
+      AKASH_NODE="$(echo $CHAIN_METADATA | jq -r .apis.rpc[0].address)"
+
+      echo "Checking the chain ID: RPC vs what is set in ${ORG}/${NET} repo"
+      NET_ID=$(curl -s "$AKASH_NODE/status" | jq -r '.result.node_info.network')
+      if [[ $NET_ID != $AKASH_CHAIN_ID ]]; then
+        echo "AKASH_CHAIN_ID '$AKASH_CHAIN_ID' does not match what Akash RPC $AKASH_NODE has: '$NET_ID'!";
+        exit 1
+      fi
+
+      echo "Checking the RPC is not running behind (or ahead) by $CHAIN_LATENCY seconds"
+      DATE_AKASH=$(curl -s "$AKASH_NODE/status" | jq -r '.result.sync_info.latest_block_time')
+      TS_AKASH=$(date +%s --date "$DATE_AKASH")
+      TS=$(date +%s)
+      DIFF=$(echo "$TS - $TS_AKASH" | bc)
+      if [[ $DIFF -gt ${CHAIN_LATENCY} ]]; then
+        echo "Akash RPC $AKASH_NODE is running $DIFF seconds behind!"
+        exit 1
+      elif [[ $DIFF -lt -${CHAIN_LATENCY} ]]; then
+        echo "Akash RPC $AKASH_NODE is running $DIFF seconds ahead!"
+        echo "Most likely the system clock is running behind on this worker node."
+        TZ=UTC date -R
+        exit 1
+      else
+        echo "Last block Akash RPC $AKASH_NODE seen was $DIFF seconds ago => OK"
+      fi
+
+      #echo "NET_VERSION=$NET_VERSION" >> $GITHUB_ENV
+      echo "AKASH_CHAIN_ID=$AKASH_CHAIN_ID" >> $GITHUB_ENV
+      echo "AKASH_NODE=$AKASH_NODE" >> $GITHUB_ENV
+
+      echo "Akash network and version: $NET, $NET_VERSION"
+      echo "AKASH_CHAIN_ID: $AKASH_CHAIN_ID"
+      echo "AKASH_NODE: $AKASH_NODE"
+
+  - name: Check wallet balance
+    shell: bash
+    run: |
+      balance="$(${CLIENT} query bank balances ${AKASH_OWNER} | jq -r '(.balances[0].amount // 0 | tonumber / pow(10; 6))')"
+      echo "${AKASH_OWNER} balance: ${balance} AKT"
+      if ! (( $(echo "$balance > 0" | bc -l) && $(echo "$balance >= ${MIN_BALANCE}" | bc -l) )); then
+        echo "Balance is low, make sure $AKASH_OWNER account has more than ${MIN_BALANCE} AKT"
+        exit 1
+      fi
+
+  - name: Create client certificate
+    env:
+      PASSWORD: ${{ inputs.password }}
+    shell: bash
+    run: |
+      CLIENT_CERT_PATH="${AKASH_HOME}/${AKASH_OWNER}.pem"
+      GEN_NEW_CERT=1
+
+      # Check whether the certificate is present and valid on the blockchain
+      if [[ -f "${CLIENT_CERT_PATH}" ]]; then
+        LOCAL_CERT_SN="$(cat "${CLIENT_CERT_PATH}" | openssl x509 -serial -noout | cut -d'=' -f2)"
+        LOCAL_CERT_SN_DECIMAL=$(echo "obase=10; ibase=16; $LOCAL_CERT_SN" | bc)
+        REMOTE_CERT_STATUS="$(${CLIENT} query cert list --owner $AKASH_OWNER --state valid --serial $LOCAL_CERT_SN_DECIMAL | jq -r '.certificates[0].certificate.state')"
+        echo "Client certificate serial number: ${LOCAL_CERT_SN:-unknown}, status on chain: ${REMOTE_CERT_STATUS:-unknown}"
+      else
+        echo "Client certificate: ${CLIENT_CERT_PATH} file is missing."
+        GEN_NEW_CERT=0
+      fi
+
+      if [[ -z "$LOCAL_CERT_SN" ]]; then
+        echo "Could not determine LOCAL_CERT_SN. Ignore if the client certificate is missing."
+        GEN_NEW_CERT=0
+      fi
+
+      if [[ "valid" != "$REMOTE_CERT_STATUS" ]]; then
+        echo "No valid client certificate found on chain for: ${AKASH_OWNER}. Ignore if the client certificate is missing."
+        GEN_NEW_CERT=0
+
+        echo "It might as well be that the current certificate was expired/revoked, thus, it should be safe to delete it locally."
+        # It's also a good idea to delete it as otherwise, we'd have to add `--overwrite` to `provider-services tx cert generate client` command later.
+        if [[ -f "${CLIENT_CERT_PATH}" ]]; then
+          rm -vf "${CLIENT_CERT_PATH}"
+        fi
+      fi
+
+      # generate a new cert if the current one expires sooner than 7 days
+      set +e
+      #set -x
+      ${CLIENT} query cert list --owner $AKASH_OWNER --state valid | jq -r '.certificates[-1].certificate.cert' | openssl base64 -A -d | openssl x509 -checkend 604800 -noout 2>/dev/null 1>&2
+      rc=$?
+      if [[ $rc -ne 0 ]]; then
+        # TODO: can also fall here when there is no valid cert found on the chain, avoid printing confusing message
+        #echo "Certificate expires in less than 7 days, so going to generate a new one."
+        GEN_NEW_CERT=0
+      fi
+      #set +x
+      set -e
+
+      if [[ "$GEN_NEW_CERT" -eq "0" ]]; then
+        echo "Generating a new client certificate..."
+        echo "${PASSWORD}" | ${CLIENT} tx cert generate client
+        echo "Broadcasting the certificate to the chain..."
+        echo "${PASSWORD}" | ${CLIENT} tx cert publish client
+        sleep ${BLOCK_TIME}
+      else
+        echo "Client certificate is valid and present on the chain. No further actions required."
+      fi
+
+  - name: Save client certs to cache
+    # TODO(security): check how akash client certificates are encrypted and dangers of them being leaked
+    id: cache-client-certs-save
+    uses: actions/cache/save@v3
+    with:
+      path: |
+        ${{ env.AKASH_HOME }}/*.pem
+      key: ${{ steps.cache-client-certs-restore.outputs.cache-primary-key }}
+
+  ## Init client end #
+  #                ###

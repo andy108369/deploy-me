@@ -1,0 +1,65 @@
+name: Cleanup state
+description: Cleanup state .akash/{DSEQ,PROVIDER,STATUS}
+
+inputs:
+  password:
+    description: 'Password to encrypt the wallet'
+    required: true
+  github_token:
+    description: 'GITHUB_TOKEN'
+    required: true
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Close stale deployment
+    id: close-stale-deployment
+    if: |
+      steps.deployment-active.outputs.is == 'false' &&
+      steps.deployment-state.outputs.state == 'active'
+    env:
+      PASSWORD: ${{ inputs.password }}
+    shell: bash
+    run: |
+      echo "Closing stale deployment"
+
+      ## === broadcast tx === ##
+      TX=$(echo "${PASSWORD}" | ${CLIENT} tx deployment close | jq -r '.txhash')
+      if test -z $TX; then
+        echo "No TX broadcasted!"
+        exit 1
+      fi
+      echo "TX: $TX"
+      sleep ${BLOCK_TIME}
+      RC=$(${CLIENT} query tx $TX | jq -r '.code')
+      case $RC in
+        0)
+          echo "TX successful"
+          ;;
+        11)
+          echo "Out of gas! Consider raising AKASH_GAS_ADJUSTMENT and trying again."
+          exit 1
+          ;;
+        *)
+          echo "Transaction $TX failed with code: '$RC'"
+          exit 1
+          ;;
+      esac
+      ## === broadcast tx === ##
+
+  - name: Remove the state if deployment is inactive
+    id: remove-state
+    if: |
+      steps.deployment-active.outputs.is == 'false' &&
+      ( steps.close-stale-deployment.outcome == 'success' || steps.close-stale-deployment.outcome == 'skipped' )
+    shell: bash
+    run: |
+      echo "AKASH_DSEQ=" >> $GITHUB_ENV
+      echo "AKASH_PROVIDER=" >> $GITHUB_ENV
+      rm -vf .akash/DSEQ .akash/PROVIDER .akash/STATUS
+
+  - name: Commit & Push changes
+    uses: actions-js/push@master
+    with:
+      github_token: ${{ inputs.github_token }}

@@ -1,0 +1,19 @@
+{
+  "services": {
+    "tetris": {
+      "name": "tetris",
+      "available": 0,
+      "total": 1,
+      "uris": [
+        "k5v0k12h3tfjv7vt0kb6rh48ao.ingress.akash-nodes-atl1.dlinodes.com"
+      ],
+      "observed_generation": 1,
+      "replicas": 1,
+      "updated_replicas": 1,
+      "ready_replicas": 0,
+      "available_replicas": 0
+    }
+  },
+  "forwarded_ports": null,
+  "ips": null
+}

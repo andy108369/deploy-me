@@ -1,0 +1,97 @@
+name: Restore the state
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Restore the state
+    id: restore-state
+    continue-on-error: true
+    shell: bash
+    run: |
+      if [[ -f .akash/DSEQ && -f .akash/PROVIDER ]]; then
+        AKASH_DSEQ=$(cat .akash/DSEQ)
+        AKASH_PROVIDER=$(cat .akash/PROVIDER)
+      fi
+      test ! -z "$AKASH_DSEQ"
+      test ! -z "$AKASH_PROVIDER"
+      echo "Expecting $AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment on $AKASH_PROVIDER provider."
+      echo "Going to verify whether it is alive."
+      echo "AKASH_DSEQ=$AKASH_DSEQ" >> $GITHUB_ENV
+      echo "AKASH_PROVIDER=$AKASH_PROVIDER" >> $GITHUB_ENV
+
+  - name: Get order state
+    # return states: "active", "closed"
+    # return "null" on error
+    id: order-state
+    if: steps.restore-state.outcome == 'success'
+    shell: bash
+    run: |
+      STATE=$(${CLIENT} query market order get | jq -r '.state')
+      echo "state=$STATE" >> $GITHUB_OUTPUT
+      echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ order state: $STATE"
+
+  - name: Get bid state
+    # return states: "active", "closed"
+    # return "null" on error
+    id: bid-state
+    if: steps.restore-state.outcome == 'success'
+    shell: bash
+    run: |
+      STATE=$(${CLIENT} query market bid get | jq -r '.bid.state')
+      echo "state=$STATE" >> $GITHUB_OUTPUT
+      echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ bid state: $STATE"
+
+  - name: Get lease state
+    # return states: "active", "closed"
+    # return "null" on error
+    id: lease-state
+    if: steps.restore-state.outcome == 'success'
+    shell: bash
+    run: |
+      STATE=$(${CLIENT} query market lease get | jq -r '.lease.state')
+      echo "state=$STATE" >> $GITHUB_OUTPUT
+      echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ lease state: $STATE"
+
+  - name: Get group state
+    # return states: "open", 
+    # return "null" on error
+    id: group-state
+    if: steps.restore-state.outcome == 'success'
+    shell: bash
+    run: |
+      STATE=$(${CLIENT} query deployment group get | jq -r '.state')
+      echo "state=$STATE" >> $GITHUB_OUTPUT
+      echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ group state: $STATE"
+
+  - name: Get deployment state
+    # return states: "active", "closed"
+    # return "null" on error
+    id: deployment-state
+    if: steps.restore-state.outcome == 'success'
+    shell: bash
+    run: |
+      STATE=$(${CLIENT} query deployment get | jq -r '.deployment.state')
+      echo "state=$STATE" >> $GITHUB_OUTPUT
+      echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment state: $STATE"
+
+  - name: Is deployment really active?
+    id: deployment-active
+    shell: bash
+    run: |
+      set -x
+      bid=${{ steps.bid-state.outputs.state }}
+      lease=${{ steps.lease-state.outputs.state }}
+      group=${{ steps.group-state.outputs.state }}
+      deployment=${{ steps.deployment-state.outputs.state }}
+      set +x
+
+      if [[ $bid == "active" &&
+            $lease == "active" &&
+            $group == "open" &&
+            $deployment == "active" ]]; then
+        echo "$AKASH_DSEQ/$AKASH_GSEQ/$AKASH_OSEQ deployment is active"
+        echo "is=true" >> $GITHUB_OUTPUT
+      else
+        echo "is=false" >> $GITHUB_OUTPUT
+      fi
