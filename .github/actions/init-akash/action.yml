@@ -271,7 +271,7 @@ runs:
       fi
 
   - name: Save client certs to cache
-    # TODO(security): check how akash client certificates are encrypted and dangers of them being leaked
+    # TODO(security): encrypt akash client certificates before storing them in the cache
     id: cache-client-certs-save
     uses: actions/cache/save@v3
     with:

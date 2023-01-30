@@ -1,6 +1,6 @@
 # TODO
 
-- split monolithic workflow into modules;
+- security: encrypt the .pem files before storing them into GH actions cache
 - address TODO found in this repo;
 - display deployments which aren't part of the state (`.akash/{DSEQ,PROVIDER}`);
 - add a workflow for sending AKT tokens to akash1... address;
