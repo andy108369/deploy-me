@@ -2,39 +2,57 @@
 version: "2.0"
 
 services:
-  tetris:
-    image: bsord/tetris
+  node:
+    image: ghcr.io/chalabi2/cosmos-omnibus/canto
+    env:
+      - MONIKER=my-moniker-1
+      - CHAIN_JSON=https://raw.githubusercontent.com/cosmos/chain-registry/master/canto/chain.json
+      - MINIMUM_GAS_PRICES=40000000000000acanto
+      - FASTSYNC_VERSION=v0
+      - SNAPSHOT_POLKACHU=1
     expose:
-      - port: 80
+      - port: 8145
         as: 80
         to:
           - global: true
+      - port: 26656
+        to:
+          - global: true
+    # params:
+    #   storage:
+    #     data:
+    #       mount: /root/.akash
 
 profiles:
   compute:
-    tetris:
+    node:
       resources:
         cpu:
-          units: 1.0
+          units: 4
         memory:
-          size: 512Mi
+          size: 8Gi
         storage:
-          size: 512Mi
+          size: 100Gi
+          # - size: 100Mi
+          # - name: data
+          #   size: 400Gi
+          #   attributes:
+          #     persistent: true
+
   placement:
-    akash:
+    dcloud:
       attributes:
         host: akash
       signedBy:
         anyOf:
-          - "akash1365yvmc4s7awdyj3n2sav7xfx76adc6dnmlx63"
-          - "akash18qa2a2ltfyvkyj0ggj3hkvuj6twzyumuaru9s4"
+          - akash1365yvmc4s7awdyj3n2sav7xfx76adc6dnmlx63
       pricing:
-        tetris:
+        node:
           denom: uakt
-          amount: 10000
+          amount: 1000
 
 deployment:
-  tetris:
-    akash:
-      profile: tetris
+  node:
+    dcloud:
+      profile: node
       count: 1
