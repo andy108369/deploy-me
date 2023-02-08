@@ -18,11 +18,11 @@ runs:
       SEED="${{ inputs.seed }}"
       PASSWORD="${{ inputs.password }}"
       if test -z "${SEED}"; then
-        echo "SEED is empty! Please add a mnemonic seed secret named SEED to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "SEED is empty! Please add a mnemonic seed secret named SEED to this repo (under repo 'Settings' -> 'Secrets and variables' -> 'Actions')"
         exit 1
       fi
       if test -z "${PASSWORD}"; then
-        echo "PASSWORD is empty! Please add a secret named PASSWORD to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "PASSWORD is empty! Please add a secret named PASSWORD to this repo (under repo 'Settings' -> 'Secrets and variables' -> 'Actions')"
         exit 1
       fi
 
@@ -77,7 +77,7 @@ runs:
     run: |
       if test -z "${SEED}"; then
         echo "I could not find the mnemonic seed!"
-        echo "Please add a mnemonic seed secret named SEED to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "Please add a mnemonic seed secret named SEED to this repo (under repo 'Settings' -> 'Secrets and variables' -> 'Actions')"
         echo "I will generate one for you as an example, using '${CLIENT} keys mnemonic' CLI command:"
         echo "============ MNEMONIC SEED ============"
         ${CLIENT} keys mnemonic
@@ -93,7 +93,7 @@ runs:
     run: |
       if test -z "${PASSWORD}"; then
         echo "I could not find the password!"
-        echo "Please add a secret named PASSWORD to this repo (under repo `Settings` -> `Secrets and variables` -> `Actions`)"
+        echo "Please add a secret named PASSWORD to this repo (under repo 'Settings' -> 'Secrets and variables' -> 'Actions')"
         echo "This password will be used to encrypt the wallet."
         exit 1
       fi
@@ -241,7 +241,7 @@ runs:
         GEN_NEW_CERT=0
 
         echo "It might as well be that the current certificate was expired/revoked, thus, it should be safe to delete it locally."
-        # It's also a good idea to delete it as otherwise, we'd have to add `--overwrite` to `provider-services tx cert generate client` command later.
+        # It's also a good idea to delete it as otherwise, we'd have to add '--overwrite' to 'provider-services tx cert generate client' command later.
         if [[ -f "${CLIENT_CERT_PATH}" ]]; then
           rm -vf "${CLIENT_CERT_PATH}"
         fi
