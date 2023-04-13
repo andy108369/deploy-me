@@ -1,0 +1,19 @@
+{
+  "services": {
+    "tetris": {
+      "name": "tetris",
+      "available": 0,
+      "total": 1,
+      "uris": [
+        "1nm8leauvd9jh3gac8nq9umq58.ingress.bdl.computer"
+      ],
+      "observed_generation": 1,
+      "replicas": 1,
+      "updated_replicas": 1,
+      "ready_replicas": 0,
+      "available_replicas": 0
+    }
+  },
+  "forwarded_ports": null,
+  "ips": null
+}
