@@ -1,3 +1,13 @@
+# Latest Fork
+
+I am excited to share that this project has been forked and improved upon by another developer. The latest and potentially more up-to-date version can be found here:
+
+[Akash Deploy Action](https://github.com/TedcryptoOrg/akash-deploy-action)
+
+This fork includes a number of enhancements and additional features that contribute to the overall functionality and usability of the project. I recommend checking it out to see the great work that has been done!
+
+----
+
 # deploy-me
 
 This repository deploys [deploy.yaml](deploy.yaml) in [Akash Network](https://akash.network) using GitHub Actions workflow.
